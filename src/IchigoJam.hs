@@ -1,5 +1,6 @@
 module IchigoJam
     ( Std15
+    , Direction (..)
     , newStd15
     , locate
     , putc
@@ -38,6 +39,7 @@ type RefCursorX = IORef Int
 type RefCursorY = IORef Int
 
 data Std15 = Std15 BuffW BuffH DotW DotH RefBuff RefCursorX RefCursorY
+data Direction = DirUp | DirRight | DirDown | DirLeft
 
 newStd15 :: Float -> Float -> BuffW -> BuffH -> Pio Std15
 newStd15 screenW screenH buffW buffH = do
@@ -78,13 +80,23 @@ cls :: Std15 -> Pio ()
 cls self@(Std15 buffW buffH _ _ _ _ _) =
   forM_ [0..(buffH-1)] $ \y -> forM_ [0..(buffW-1)] $ \x -> setChar self x y '\0'
       
-scroll :: Std15 -> Pio ()
-scroll self@(Std15 buffW buffH _ _ _ _ _) =
+scroll :: Std15 -> Direction -> Pio ()
+scroll self@(Std15 buffW buffH _ _ _ _ _) dir =
   forM_ [0..(buffH-1)] $ \y ->
     forM_ [0..(buffW-1)] $ \x ->
-      if y == buffH -1
-        then setChar self x y '\0'
-        else scr self x (y+1) >>= setChar self x y
+      case dir of
+        DirUp -> if y == buffH -1
+          then setChar self x y '\0'
+          else scr self x (y+1) >>= setChar self x y
+        DirRight -> if x == buffW -1
+          then setChar self (buffW-x-1) y '\0'
+          else scr self ((buffW-x-1)-1) y >>= setChar self (buffW-x-1) y
+        DirDown -> if y == buffH -1
+          then setChar self x (buffH-y-1) '\0'
+          else scr self x ((buffH-y-1)-1) >>= setChar self x (buffH-y-1)
+        DirLeft -> if x == buffW -1
+          then setChar self x y '\0'
+          else scr self (x+1) y >>= setChar self x y
 
 setChar :: Std15 -> Int -> Int -> Char -> Pio ()
 setChar (Std15 buffW _ _ _ buff _ _) x y c = liftIO $ IOUArray.writeArray buff (y*buffW+x) c
