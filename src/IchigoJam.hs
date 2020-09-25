@@ -6,7 +6,7 @@ module IchigoJam
     , scr
     , cls
     , scroll
-    , pAppletDraw
+    , drawScreen
     ) where
 
 
@@ -22,85 +22,89 @@ import Control.Monad (forM_,when)
 import Data.Bits ((.&.),shiftR)
 
 
-char_sx :: Int
-char_sx = 8
-char_sy :: Int
-char_sy = 8
+charW :: Int
+charW = 8
+charH :: Int
+charH = 8
 
-type CB_SX = Int
-type CB_SY = Int
-type CB_UNIT = Float
-type CharBuff = IOUArray Int Char
-type CURSOR_X = IORef Int
-type CURSOR_Y = IORef Int
+type BuffW = Int
+type BuffH = Int
+type DotW = Float
+type DotH = Float
+type RefBuff = IOUArray Int Char
+type RefCursorX = IORef Int
+type RefCursorY = IORef Int
 
-data Std15 = Std15 CB_SX CB_SY CB_UNIT CharBuff CURSOR_X CURSOR_Y
+data Std15 = Std15 BuffW BuffH DotW DotH RefBuff RefCursorX RefCursorY
 
-newStd15 :: Int -> Int -> Int -> Int -> Pio Std15
-newStd15 screen_sx screen_sy cb_sx cb_sy = do
-  background $ grey 0x00
-  fill $ grey 0xff
-  noStroke
-  let cb_unit = (fromIntegral screen_sx) / (fromIntegral cb_sx) / (fromIntegral char_sx)
-  charBuff <- liftIO $ IOUArray.newArray (0, cb_sx * cb_sy) '\0'
-  refX <- liftIO $ newIORef 0
-  refY <- liftIO $ newIORef 0
-  return $ Std15 cb_sx cb_sy cb_unit charBuff refX refY
+newStd15 :: Float -> Float -> BuffW -> BuffH -> Pio Std15
+newStd15 screenW screenH buffW buffH = do
+  let dotW = screenW / (fromIntegral buffW) / (fromIntegral charW)
+  let dotH = screenH / (fromIntegral buffH) / (fromIntegral charH)
+  buff <- liftIO $ IOUArray.newArray (0, (buffW * buffH)-1 ) '\0'
+  cursorX <- liftIO $ newIORef 0
+  cursorY <- liftIO $ newIORef 0
+  return $ Std15 buffW buffH dotW dotH buff cursorX cursorY
 
 locate :: Std15 -> Int -> Int -> Pio ()
-locate (Std15 _ _ _ _ refX refY) x y = do
-  liftIO $ writeIORef refX x
-  liftIO $ writeIORef refY y
-
-putcLoc :: Std15 -> Int -> Int -> Char -> Pio ()
-putcLoc (Std15 cb_sx _ _ charBuff _ _) x y c = liftIO $ IOUArray.writeArray charBuff (y*cb_sx+x) c
+locate (Std15 _ _ _ _ _ cursorX cursorY) x y = do
+  liftIO $ writeIORef cursorX x
+  liftIO $ writeIORef cursorY y
 
 putc :: Std15 -> Char -> Pio ()
-putc std15@(Std15 _ _ _ _ refX refY) c = do
-  x <- liftIO $ readIORef refX
-  y <- liftIO $ readIORef refY
-  putcLoc std15 x y c
+putc self@(Std15 _ _ _ _ _ cursorX cursorY) c = do
+  x <- liftIO $ readIORef cursorX
+  y <- liftIO $ readIORef cursorY
+  setChar self x y c
 
 scr :: Std15 -> Int -> Int -> Pio Char
-scr (Std15 cb_sx _ _ charBuff _ _) x y = liftIO $ IOUArray.readArray charBuff (y*cb_sx+x)
+scr (Std15 buffW _ _ _ buff _ _) x y = liftIO $ IOUArray.readArray buff (y*buffW+x)
 
 cls :: Std15 -> Pio ()
-cls (Std15 cb_sx cb_sy _ charBuff _ _) =
-  forM_ [0..(cb_sy-1)] $ \y ->
-    forM_ [0..(cb_sx-1)] $ \x ->
-      liftIO $ IOUArray.writeArray charBuff (y*cb_sx+x) '\0'
+cls self@(Std15 buffW buffH _ _ _ _ _) =
+  forM_ [0..(buffH-1)] $ \y -> forM_ [0..(buffW-1)] $ \x -> setChar self x y '\0'
       
 scroll :: Std15 -> Pio ()
-scroll (Std15 cb_sx cb_sy _ charBuff _ _) =
-  forM_ [0..(cb_sy-1)] $ \y ->
-    forM_ [0..(cb_sx-1)] $ \x ->
-      if y == cb_sy -1
-        then liftIO $ IOUArray.writeArray charBuff (y*cb_sx+x) '\0'
-        else liftIO $ IOUArray.readArray charBuff ((y+1)*cb_sx+x) >>=
-                        \c-> IOUArray.writeArray charBuff (y*cb_sx+x) c
+scroll self@(Std15 buffW buffH _ _ _ _ _) =
+  forM_ [0..(buffH-1)] $ \y ->
+    forM_ [0..(buffW-1)] $ \x ->
+      if y == buffH -1
+        then setChar self x y '\0'
+        else scr self x (y+1) >>= setChar self x y
 
-mapchar :: Std15 -> Int -> Int -> Char -> Draw
-mapchar (Std15 cb_sx cb_sy cb_unit _ _ _) cx cy c = do
-  let glyph = font ! c
-  forM_ [0..(char_sy-1)] $ \y -> do
-    let line = (glyph `shiftR` ((char_sy-y-1)*char_sx)) .&. 0xff
-    forM_ [0..(char_sx-1)] $ \x ->
-      when (((line `shiftR` (char_sx-x-1)) .&. 0x1) == 0x1) $ do
-        let x0 = ((fromIntegral cx)*(fromIntegral char_sx)+(fromIntegral x))*cb_unit
-        let y0 = ((fromIntegral cy)*(fromIntegral char_sy)+(fromIntegral y))*cb_unit
-        rect (x0, y0) (cb_unit, cb_unit)
+setChar :: Std15 -> Int -> Int -> Char -> Pio ()
+setChar (Std15 buffW _ _ _ buff _ _) x y c = liftIO $ IOUArray.writeArray buff (y*buffW+x) c
 
-pAppletDraw :: Std15 -> Draw
-pAppletDraw std15@(Std15 cb_sx cb_sy cb_unit charBuff _ _) = do
+drawChar :: Std15 -> Int -> Int -> Char -> Draw
+drawChar (Std15 _ _ dotW dotH _ _ _) x y c =
+  let
+    glyph = ichigojamFont ! c
+  in forM_ [0..(charH-1)] $ \cy ->
+    let
+      line = (glyph `shiftR` ((charH-cy-1)*charW)) .&. 0xff
+    in forM_ [0..(charW-1)] $ \cx ->
+      when (((line `shiftR` (charW-cx-1)) .&. 0x1) == 0x1) $ do
+        fill $ grey 0xff
+        noStroke
+        let x0 = (fromIntegral $ x * charW + cx) * dotW
+        let y0 = (fromIntegral $ y * charH + cy) * dotH
+        rect (x0, y0) (dotW, dotH)
+
+drawScreen :: Std15 -> Draw
+drawScreen self@(Std15 buffW buffH _ _ _ _ _) = do
+  background $ grey 0x00
   clear
-  forM_ [0..(cb_sy-1)] $ \y ->
-    forM_ [0..(cb_sx-1)] $ \x ->
-      (liftIO $ IOUArray.readArray charBuff (y*cb_sx+x)) >>= \c -> mapchar std15 x y c
+  forM_ [0..(buffH-1)] $ \y -> forM_ [0..(buffW-1)] $ \x -> scr self x y >>= drawChar self x y
         
   
-
-font :: UArray Char Word64
-font = UArray.listArray (toEnum 0, toEnum 255) [
+--
+--
+--  CC BY IchigoJam & mitsuji.org
+--  https://mitsuji.github.io/ichigojam-font.json/
+--
+--
+ichigojamFont :: UArray Char Word64
+ichigojamFont = UArray.listArray (toEnum 0, toEnum 0xff) [
     0x0000000000000000,
     0xffffffffffffffff,
     0xffaaff55ffaaff55,
