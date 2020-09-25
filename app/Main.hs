@@ -2,6 +2,7 @@ module Main where
 
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Graphics.Proc
+import IchigoJam (Std15,Direction(..))
 import qualified IchigoJam as IJ
 
 main :: IO ()
@@ -11,7 +12,7 @@ main = runProc $ def { procSetup      = setup
                      , procKeyPressed = keyPressed
                      }
 
-type State = (IJ.Std15, IORef Bool, Int)
+type State = (Std15, IORef Bool, Int)
 
 setup :: Pio State
 setup = do
@@ -30,7 +31,7 @@ update state@(std15,running,x) = do
       IJ.putc std15 '0'
       random 32 >>= \rnd -> IJ.locate std15 (floor rnd) 23
       IJ.putc std15 '*'
-      IJ.scroll std15
+      IJ.scroll std15 DirUp
       sc <- IJ.scr std15 x 5
       when (sc /= '\0') $ do
         IJ.locate std15 0 23
