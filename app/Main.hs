@@ -32,7 +32,11 @@ update state@(std15,running,x) = do
       IJ.putc std15 '*'
       IJ.scroll std15
       sc <- IJ.scr std15 x 5
-      when (sc /= '\0') $ liftIO $ writeIORef running False
+      when (sc /= '\0') $ do
+        IJ.locate std15 0 23
+        IJ.putstr std15 "Game Over..."
+        IJ.putnum std15 fc
+        liftIO $ writeIORef running False
   return state
 
 draw :: State -> Draw
