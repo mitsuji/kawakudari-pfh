@@ -6,12 +6,14 @@ module IchigoJam
     , scr
     , cls
     , scroll
+    , putstr
+    , putnum
     , drawScreen
     ) where
 
 
 import Graphics.Proc
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef, modifyIORef)
 import qualified Data.Array.Unboxed as UArray
 import Data.Array.Unboxed (UArray)
 import Data.Array.Unboxed ((!))
@@ -52,10 +54,22 @@ locate (Std15 _ _ _ _ _ cursorX cursorY) x y = do
   liftIO $ writeIORef cursorY y
 
 putc :: Std15 -> Char -> Pio ()
-putc self@(Std15 _ _ _ _ _ cursorX cursorY) c = do
+putc self@(Std15 buffW buffH _ _ _ cursorX cursorY) c = do
   x <- liftIO $ readIORef cursorX
   y <- liftIO $ readIORef cursorY
   setChar self x y c
+  if x < buffW-1
+    then liftIO $ modifyIORef cursorX (+1)
+    else when (y < buffH-1) $ do
+           liftIO $ writeIORef cursorX 0
+           liftIO $ modifyIORef cursorY (+1)
+
+
+putstr :: Std15 -> String -> Pio ()
+putstr self s = forM_ s $ putc self
+
+putnum :: Std15 -> Int -> Pio ()
+putnum self n = putstr self $ show n
 
 scr :: Std15 -> Int -> Int -> Pio Char
 scr (Std15 buffW _ _ _ buff _ _) x y = liftIO $ IOUArray.readArray buff (y*buffW+x)
