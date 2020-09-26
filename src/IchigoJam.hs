@@ -9,6 +9,7 @@ module IchigoJam
     , scroll
     , putstr
     , putnum
+    , pset
     , drawScreen
     ) where
 
@@ -22,7 +23,7 @@ import qualified Data.Array.IO as IOUArray
 import Data.Array.IO (IOUArray)
 import Data.Word (Word64)
 import Control.Monad (forM_,when)
-import Data.Bits ((.&.),shiftR)
+import Data.Bits ((.&.),(.|.),shiftR)
 
 
 charW :: Int
@@ -97,6 +98,20 @@ scroll self@(Std15 buffW buffH _ _ _ _ _) dir =
         DirLeft -> if x == buffW -1
           then setChar self x y '\0'
           else scr self (x+1) y >>= setChar self x y
+
+pset :: Std15 -> Int -> Int -> Pio ()
+pset self x y = do
+  let (cx,tx) = x `divMod` 2
+  let (cy,ty) = y `divMod` 2
+  c <- fromEnum <$> scr self cx cy
+  let b = case (ty,tx) of
+        (0,0) -> 1
+        (0,_) -> 2
+        (_,0) -> 4
+        _     -> 8
+  if c .&. 0xf0 == 0x80
+    then setChar self cx cy (toEnum $ c .|. b)
+    else setChar self cx cy (toEnum $ 0x80 .|. b)
 
 setChar :: Std15 -> Int -> Int -> Char -> Pio ()
 setChar (Std15 buffW _ _ _ buff _ _) x y c = liftIO $ IOUArray.writeArray buff (y*buffW+x) c
